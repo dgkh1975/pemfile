@@ -1,7 +1,41 @@
-on: [push, pull_request]
 name: rustls-pemfile
 
+on:
+  push:
+  pull_request:
+  merge_group:
+  schedule:
+    - cron: '0 18 * * *'
+
 jobs:
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: cargo fmt --all -- --check
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: cargo clippy --locked --all-features --all-targets
+  rustdoc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: cargo doc --locked --all-features
   build:
     name: "Build and test"
     runs-on: ${{ matrix.os }}
@@ -12,7 +46,7 @@ jobs:
           - stable
           - beta
           - nightly
-        os: [ubuntu-18.04]
+        os: [ubuntu-latest]
         # but only stable on macos/windows (slower platforms)
         include:
           - os: macos-latest
@@ -21,19 +55,42 @@ jobs:
             rust: stable
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Install ${{ matrix.rust }} toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          override: true
+          targets: x86_64-unknown-none
 
       - name: cargo test (debug)
-        run: cargo test
+        run: cargo test --locked
         env:
           RUST_BACKTRACE: 1
+          RUSTFLAGS: "-D warnings"
 
       - name: cargo test (release)
-        run: cargo test --release
+        run: cargo test --locked --release
+        env:
+          RUSTFLAGS: "-D warnings"
 
+        # this target does _not_ include the libstd crate in its sysroot
+        # it will catch unwanted usage of libstd in _dependencies_
+      - name: cargo build no-std mode
+        run: cargo build --locked --no-default-features --target x86_64-unknown-none
+        env:
+          RUSTFLAGS: "-D warnings"
+
+  semver:
+    name: Check semver compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check semver
+        uses: obi1kenobi/cargo-semver-checks-action@v2
